@@ -1,0 +1,134 @@
+---
+title: "G5069_Data Challenge 1"
+author: "Team 4"
+date: "18 February 2017"
+output: html_document
+---
+```{r message = FALSE}
+#  ####################################################################### 
+#       File-Name:      DataChallenge1_Team4.Rmd
+#       Version:        R 3.3.2
+#       Date:           Feb 18, 2017
+#       Author:         MM
+#       Purpose:        Verify lethality index figures with reported figures
+#       Input Files:    ConfrontationsData_170209.csv (processed data on confrontations)
+#       Output Files:   NONE
+#       Data Output:    NONE
+#       Previous files: NONE
+#       Dependencies:   NONE
+#       Required by:    NONE 
+#       Status:         IN PROGRESS
+#       Machine:        Mac laptop
+#  #######################################################################
+
+# Load Libraries and Data
+rm(list=ls(all=TRUE))
+
+library(tidyverse)
+library(ggplot2)
+
+path <- "~/Documents/Columbia/5069_Applied Data Science/Data Challenge 1/ConfrontationsData_170209.csv"
+dataset <- read.csv(path)
+```
+
+## Perfect Lethality Events
+```{r}
+pl.count <- dataset %>%
+  # filter events with 'perfect lethality' i.e. only civilian deaths and no civilian wounded
+  filter(civilian.dead != 0) %>% 
+  filter(civilian.wounded == 0) %>%
+  summarize(count = sum(civilian.dead))
+dataset.count <- dataset %>%
+  summarize(count = sum(civilian.dead))
+pl.count/dataset.count
+
+# Plot Comparison of Proportions
+pl.proportion <- data.frame(result = c("calculated", "given"), proportion = c(0.676, 0.861))
+ggplot(pl.proportion, aes(result, proportion)) + 
+  geom_col(width = 0.3, fill = "skyblue") + 
+  labs(x = "Calculations", y = "Proportion") + 
+  ggtitle("Figure 1: Proportion of Dead Civilians Killed in Events of Perfect Lethality")
+```
+We achieved a 67.6% of civilians killed in pure lethality events, which is smaller than the 86.1% reported. A possible reason is that the 86.1% is calculated based on events involving federal armed forces, which in this case, is difficult to classify (for reasons we will discuss next). The difference suggests that federal armed forces may be more lethal than non-federal armed forces in killing civilians.
+
+## Lethality Index
+```{r}
+# Add additional variables that help identify agency presence
+dataset1 <- dataset %>% 
+  mutate(navy.casualty = navy.dead + navy.wounded,
+         military.casualty = military.dead + military.wounded,
+         federal.police.casualty = federal.police.dead + federal.police.wounded,
+         nonfed.wounded = civilian.wounded + organized.crime.wounded,
+         nonfed.dead = civilian.dead + organized.crime.dead)
+
+# Check for mutual exclusivity among agency enforcement in each event
+dataset2 <- dataset1 %>% 
+  filter(military.casualty != 0) %>%
+  summarize(navy = sum(navy.casualty),
+            military = sum(military.casualty),
+            federal.police = sum(federal.police.casualty))
+
+# Data Wrangling & Plotting of Graph
+dataset3 <- data.frame(
+  group = c("navy", "military", "federal.police"),
+  value = c(4,753,11)
+  )
+
+ggplot(dataset3, aes(x = "", y = value, fill = group)) +  
+  geom_bar(width = 1, stat = "identity") + 
+  coord_polar("y", start=0) +
+  scale_fill_brewer(palette="Blues") +
+  theme_minimal() +
+  ggtitle("Figure 2: Pie Chart of Composition of Casuality")
+```
+
+Events which had casualties from the Navy also saw some casualties from the Army. As such, the federal enforcement agency for each event is not mutually-exclusive. For example, looking at events where military personnel were killed/wounded, we see that there were 4 navy casualties and 11 federal police casualties. Given that there is no variable indicating which federal enforcement agency participated in each event, we are unable to accurately calculate the lethality index sorted by the Army, Navy and Federal Police. 
+
+Nonetheless, we sought to achieve an approximate number for each federal enforcement agency by classifying events based on their respective casualty numbers. For example, if there were navy casualties from an event, it is likely that the navy participated in the confrontation. 
+
+However, again in cases of joint enforcement, our figures may over/underattribute the number of deaths/wounded to a particular agency, when the perpetrator was otherwise. This is the first source of error. This method also excludes confrontations where the agency may have participated in, but had zero casualties. In these cases with zero casualties, the enforcement agency could potentially be more effective in their killing - as such, our calculated ratios are likely to underreport the actual lethality index. This is the second source of error.
+
+```{r}
+# Calculating Lethality Indices for Criminals, Civilians & Both (Non-Fed)
+li.total <- dataset1 %>%
+  summarize(lethality.nonfed = sum(nonfed.dead)/sum(nonfed.wounded),
+            lethality.organized.crime = sum(organized.crime.dead)/sum(organized.crime.wounded),
+            lethality.civilian = sum(civilian.dead)/sum(civilian.wounded))
+
+li.federal.police <- dataset1 %>%
+  filter(federal.police.casualty != 0) %>%
+  summarize(lethality.nonfed = sum(nonfed.dead)/sum(nonfed.wounded),
+            lethality.organized.crime = sum(organized.crime.dead)/sum(organized.crime.wounded),
+            lethality.civilian = sum(civilian.dead)/sum(civilian.wounded))
+
+li.navy <- dataset1 %>%
+  filter(navy.casualty != 0) %>%
+  summarize(lethality.nonfed = sum(nonfed.dead)/sum(nonfed.wounded),
+            lethality.organized.crime = sum(organized.crime.dead)/sum(organized.crime.wounded),
+            lethality.civilian = sum(civilian.dead)/sum(civilian.wounded))
+
+li.military <- dataset1 %>%
+  filter(military.casualty != 0) %>%
+  summarize(lethality.nonfed = sum(nonfed.dead)/sum(nonfed.wounded),
+            lethality.organized.crime = sum(organized.crime.dead)/sum(organized.crime.wounded),
+            lethality.civilian = sum(civilian.dead)/sum(civilian.wounded))
+
+# Data Wrangling & Plotting of Graph
+li.summary <- rbind(li.total, li.federal.police, li.navy, li.military)
+li.summary$given <- c(2.6, 2.6, 17.3, 9.1)
+row.names(li.summary) <- c("total", "federal.police", "navy", "military")
+li.summary$type <- row.names(li.summary)
+li.summary
+
+li.summary <- li.summary %>%
+  select(type, lethality.nonfed, given) %>%
+  gather(lethality.nonfed, given, key = "li.type", value = "index.value")
+
+ggplot(li.summary, aes(x = type, y = index.value)) + 
+  geom_bar(aes(fill = li.type), stat = "identity", position = "dodge") +
+  labs(x = "Type of Federal Agency", y = "Lethality Index Value") +
+  ggtitle("Figure 3: Comparison of Lethality Indices")
+```
+
+We calculated our lethality index as the number of organized crime and civilians killed over the number of organized crime and civilians wounded. The difference between our ratios and the given ratios is shown in Figure 3. We see that the general pattern still holds - the navy has the highest lethality index among all agencies. However, the absolute difference could possibly be attributed to the two errors we have discussed above.
+
