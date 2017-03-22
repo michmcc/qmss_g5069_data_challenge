@@ -40,7 +40,7 @@ ggplot(monthly_agg[2:nrow(monthly_agg),], aes(date.month, mean.total.people.dead
   geom_smooth(method = "lm", se=TRUE, color="black", aes(group=1))
 ```
 
-From the above chart we can see that there is a linear increasing trend in the number of deaths over time.
+From the above chart we can see that there is a linear increasing trend in the number of deaths over time. However, there is quite a bit of fluctuation, even though we have smoothed out the trend by taking the average per month. The fluctuation month-to-month may be indication seasonality which would be interesting to explore in further analysis.
 
 Finally, we built a linear model to predict the total number of people dead by month.
 
@@ -48,4 +48,6 @@ Finally, we built a linear model to predict the total number of people dead by m
 summary(lm(total.people.dead ~ factor(date.month), data = AllData[AllData$total.people.dead > 0,]))
 ```
 
-In the output we can see that there are significant, however the model overall is not significant since the F-statistic has a p-value of .2815. Time isn't the only factor that can predict total deaths but it does appear that there are differences over time.
+In the output we can see that there are significant coefficients on the date.month, however the model overall is not significant since the F-statistic has a p-value of .2815. This indicates that time isn't the only factor that can predict total deaths for fatal events, but it does appear that there are differences over time.
+
+From the dataset we constructed (restricting to only those events with one casuality), we can't infer how the average deaths per month resulting from military conflicts has trended over time. For example, there could be an increasing in conflicts which result in injuries but no fatalities which would decrease the average deaths per event. So while our finding here is interesting, future exploration could look to take into account the probability of an event having at least one fatality to see if there is a temporal trend there as well.
