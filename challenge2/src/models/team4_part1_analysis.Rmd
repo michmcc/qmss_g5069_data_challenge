@@ -1,0 +1,51 @@
+---
+title: "G5999_Data Challenge 2"
+author: "Michael McCarthy"
+date: "Mar 17, 2017"
+output: html_document
+--
+
+```{r message=FALSE}
+rm(list=ls(all=TRUE))   # cleans everything in the workspace
+
+library(readr)          # easier reading of flat files
+library(caret)          # classification and regresssion training package
+library(randomForest)   # Random Forests package
+library(ggplot2)
+library(zoo)
+library(dplyr)
+require(plyr)
+require(lubridate)
+require(scales)
+```
+
+```{r message=FALSE}
+inFileName1   <- "../../data/processed/AllViolenceData_170216.csv"     # cleaned data on violence
+AllData <- read_csv(inFileName1) 
+
+```
+
+
+One question we wanted to investigate was whether any differences existed over time in the total number of deaths per confrontation. 
+
+To do so, we created a dataset which aggregated the mean number of total people dead by month. This only includes the events which have at least 1 fatality.
+
+```{r}
+AllData$date.month <- round_date(AllData$date, "month")
+monthly_agg <- ddply(AllData[AllData$total.people.dead > 1,], .(date.month), summarize, mean.total.people.dead = mean(total.people.dead) )
+ggplot(monthly_agg[2:nrow(monthly_agg),], aes(date.month, mean.total.people.dead)) + 
+  scale_x_date(labels=date_format("%b-%Y"), breaks=date_breaks("1 year")) +
+  geom_line() +
+  geom_line(aes(y=monthly_agg[2:nrow(monthly_agg),]$mean.total.people.dead, color="red")) +
+  geom_smooth(method = "lm", se=TRUE, color="black", aes(group=1))
+```
+
+From the above chart we can see that there is a linear increasing trend in the number of deaths over time.
+
+Finally, we built a linear model to predict the total number of people dead by month.
+
+```{r}
+summary(lm(total.people.dead ~ factor(date.month), data = AllData[AllData$total.people.dead > 0,]))
+```
+
+In the output we can see that there are significant, however the model overall is not significant since the F-statistic has a p-value of .2815. Time isn't the only factor that can predict total deaths but it does appear that there are differences over time.
