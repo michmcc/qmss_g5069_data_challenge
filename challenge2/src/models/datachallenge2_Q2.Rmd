@@ -1,0 +1,147 @@
+---
+title: "G5999_Data Challenge 2"
+author: "Nigel Poh"
+date: "21 March 2017"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+dataset <- read.csv("../../data/processed/AllViolenceData_170216.csv")
+```
+
+## 1
+### Hypothesis:
+1. The more cartridges seized, the fewer the amount of civiians deaths and wounded.
+2. When the army is present in the confrontation, the fewer the amount of civilians deaths and wounded.
+3. When the army is present in the confrontation, given its stronger power and might, they are able to be more successful than other agencies in seizing cartridges, and therefore causing fewer organised crime-induced civilian deaths and wounded.
+
+### Model:
+civilian dead + civilian wounded = a + B1 * cartidges.seized + B2 * army + B3 * army * cartidges.seized
+
+In our model, B1 indicates the effect of cartidges seized on the number of civilian wounded and dead when there is no army presence.
+B2 indicates the effect of army involved on the number of civilian wounded and dead, when there is no cartidges seized.
+B3 indicates the marginal effect of cartridges seized when the army is present in the confrontation. This relates to the hypothesis we would like to test.
+
+We run a regression without interaction first to see the direction of the relatinship between cartidges.seized civilian dead and civilian wounded, and army and civilian dead and civilian wounded.
+```{r}
+dataset1 <- dataset %>%
+  filter(afi == 0 & federal.police == 0 & ministerial.police == 0 & municipal.police == 0 & navy == 0 & other == 0 & state.police == 0) 
+dataset2 <- dataset[-dataset1$event.id, ]
+
+lm1 <- lm(I(civilian.dead + civilian.wounded) ~ cartridge.sezied + army  + afi + navy + federal.police + state.police + municipal.police + ministerial.police + other, data = dataset2)
+summary(lm1) 
+```
+We first filter out confrontations with 0 agencies involved at all - since in these scenarios, we are not supposed to have any cartridges seized.
+
+We filter out events which only had army participation and no other agencies participating, in order to see the marginal effect of army presence on cartridges seized on civilians death and wounded in the next step. This facilitates comparison between the extra influence the army has when it is present at confrontations with other agencies.
+
+As the first model shows, controlling other factors, cartridge.sezied is negatively related to the total number of civilians dead and wounded. Superisingly, with other factors held constantly, army has a positive effect on dead or wounded civilians, which does not support our hypothesis. However, the coefficients on both cartridge.sezied and army are not statistically significant, indicating it's likely that army and cartridge.sezied have no effect on civilians getting dead and wounded. Our hypotheses possibily are wrong.
+
+We next add interaction in the original model to further explore if our hypotheses could be supported.
+
+```{r}
+lm2 <- lm(I(civilian.dead + civilian.wounded) ~ cartridge.sezied + army + army * cartridge.sezied + afi + navy + federal.police + state.police + municipal.police + ministerial.police + other, data = dataset2)
+summary(lm2)
+
+beta <- coef(lm2)
+varcov <- as.matrix(vcov(lm2))
+se <- sqrt(diag(vcov(lm2)))
+var <- diag(varcov)
+
+cartridge.sezied <- 50
+mfx.1 <- as.numeric(beta["army"]) + as.numeric(beta["cartridge.sezied:army"]) * cartridge.sezied
+mfx.1.se <- sqrt(var["army"] + cartridge.sezied ^ 2 * var["cartridge.sezied:army"] + 2 * cartridge.sezied * varcov["army", "cartridge.sezied:army"])
+```
+
+The model could be interpreted in such ways:
+
+Controlling for other factors, on average, when there is no army presence (vs. army presence), each additional cartridge seized is associated with 1.241e-05 fewer civilian deaths and wounded. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for other factors, on average, when there are no catridges seized, army presence (vs. no army presence) is associated with 6.155e-02 more civilian deaths and wounded. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for other factors, on average, when the army is present (vs. no army presence), each additional cartridge seized results in 1.697e-05 more civilian deaths and wounded i.e. ultimately, each additional cartidge seized results in 4.56e-06 more (-1.241e-05 + 1.697e-05) civilian deaths or wounded. However, the coefficient is not statistically significant at the 10% level.
+
+### Conclusions & Limitations:
+
+We do not find support for our hypotheses because of several possible limitations.
+
+Our assumptions are that the cartridges, if not seized, would have been used by criminals to kill or wound civilians. In addition, we assume that events with and without army presence are similar in magnitude (similar number of people involved, including civilians and organised criminals etc.), such that the marginal effect of army presence can be causally determined. However, we feel that this is unlikely to be the case in real life.
+
+In this case, our hypothesis is unlikely to be true i.e. the army is not more effective than other agencies in seizing cartridges (thereby reducing the amount of civilian deaths and wounded). This is likely to be the case because additional army presence is likely to mean a more serious confrontation i.e. more combat. Our results suggest that this is possible, given that army is positively correlated with civilians death/wounded.
+
+## 2
+### Hypothesis:
+
+1. When the federal police  is present in the confrontation, there is a higher probability of perfect lethality.
+2. When the army is present in the confrontation, there is a higher probability of perfect lethality. 
+3. When there are more long guns seized, there is a higher probability of perfect lethality - since there is a higher level of combat involved.
+
+In this case, we assume that long guns seized is a proxy for the level of combat intensity in the confrontation.
+
+When both the army and the police are present at the confrontation, we believe that there is an additional 'teamwork effect' i.e. even higher probability of perfect lethality. This is the marginal effect we are interested in studying.
+
+When there is both the army and the police present at the confrontation, we also believe that additional long guns seized i.e. higher combat intensity, will result in lower probability of perfect lethality, since the 'teamwork effect' will diminish under chaotic conditions.
+
+In this case the coefficient on the interaction term with the triple interaction term represents the diminished teamwork effect of higher combat intensity. The coefficient on the interaction term between army and polie indicates the teamwork effect. 
+
+### Models:
+
+First, we run a logit model with no interaction included to see the effect direction(if exist) of predictors as in finding support for the first two hypotheses. 
+
+```{r}
+logit1 <- glm(perfect.lethality ~ army + federal.police + long.guns.seized + afi + navy + state.police + municipal.police + ministerial.police + other, family = binomial(link = "logit"), data = dataset)
+summary(logit1)
+```
+As model 1 shows, when other factors has been controlled, army and long.guns.seized have a positive correlation with perfect.lethality and federal.police, on the contrary, is negatively related to perfect.lethality. Since the coefficients of those three are significant in 0.1% level, correlations are supported. 
+
+Therefore, the directions are not all the same as we assumed. Federal.police is verified to have a negative effect instead on perfect.lethality in this model.
+
+To further learn about the interaction effect, we built the second model.
+
+```{r}
+logit2 <- glm(perfect.lethality ~ army + federal.police + long.guns.seized + army * long.guns.seized * federal.police + afi + navy + state.police + municipal.police + ministerial.police + other, family = binomial(link = "logit"), data = dataset)
+summary(logit1)
+
+beta_logit <- coef(logit2)
+varcov_logit <- as.matrix(vcov(logit2))
+se_logit <- sqrt(diag(vcov(logit2)))
+
+long.guns.seized <- 5
+mfx.2 <- as.numeric(beta["army"]) + as.numeric(beta["federal.police"]) + 
+  as.numeric(beta["army:federal.police"]) + as.numeric(beta["army:federal.police:long.guns.seized"]) * long.guns.seized 
+
+mfx.2.se <- mfx.2.se <- sqrt(
+  se_logit["army"] ^ 2 + se_logit["federal.police"] ^ 2 + se_logit["army:federal.police"] ^ 2 + se_logit["army:federal.police:long.guns.seized"] ^ 2 * (long.guns.seized ^ 2) +
+    2 * varcov_logit["army", "federal.police"] + 2 * varcov_logit["army", "army:federal.police"] + 2 * varcov_logit["army", "army:federal.police:long.guns.seized"] * long.guns.seized +
+    2 * varcov_logit["federal.police", "army:federal.police"] + 2 * varcov_logit["federal.police", "army:federal.police:long.guns.seized"] * long.guns.seized + 
+    2 * varcov_logit["army:federal.police", "army:federal.police:long.guns.seized"] * long.guns.seized
+)
+```
+
+Conclusion & Limitation
+
+We assume that long guns seized is a proxy for combat intensity i.e. the more long guns there were seized meant that there were more long guns present in combat, and hence higher intensity. However, it may not be a good proxy because it can also meant that the fighting power is reduced when more guns are seized, i.e. less combat intensity. However, given the lack of any other variables that could serve as a proxy for combat intensity, we think this is the closest measure.
+
+In addition, we assume that events are similar in magnitude with or without army and/or federal police presence. However, we feel that this is unlikely to be the case in real life, as mentioned before since more involvement of different agencies is likely to signify higher magnitude.
+
+Controlling for all other factors, on average, when there is no federal police presence and no long guns seized, army presence increases the logit of perfect lethality by 0.429. The coefficient is statistically significant at the 0.1% level.
+
+Controlling for all other factors, on average, when there is no army presence and no long guns seized, federal police presence decreases the logit of perfect lethality by 0.700. The coefficient is statistically significant at the 0.1% level.
+
+Controlling for all other factors, on average, when there is no federal police and no army presence, an additional long gun seized increases the logit of perfect lethality by 0.084. The coefficient is statistically significant at the 0.1% level. This possibly suggests that long guns seized is a measure of weakened enemy power, rather than combat intensity.
+
+Controlling for all other factors, on average, when there is no federal police presence but army presence, an additional long gun seized decreases the logit of perfect lethality by 0.023. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for all other factors, on average, when there is no army presence but federal police presence, an additional long gun seized increases the logit of perfect lethality by 0.114. The coefficient is statistically significant at the 1% level.
+
+Controlling for all other factors, on average, when there is no long guns seized, army and federal police presence decreases the logit of perfect lethality by 0.655. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for all other factors, on average, when there is army and federal poice presence, an additional long gun seized decreases the logit of perfect lethality by 0.026. The coefficient is not statistically significant at the 10% level.
+
+As such, our hypothesis are wrong. The teamwork effect is negative in the regression, contrary to what we predicted, and the marginal effect of combat intensity is positive, again contrary to what we predicte. There is no presence of teamwork effect. However, this is likely to be the case because we do not have enough observations where both army and federal police were involved hence resulting in larger standard errors. In addition, as mentioned, long guns seized is not a good proxy for combat intensity - rather it actually means lower combat intensity (since enemy firepower is weakened), and hence possibly contributing to the opposite effects we see here. 
+
+
