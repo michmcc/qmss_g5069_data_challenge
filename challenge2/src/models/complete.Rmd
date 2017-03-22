@@ -1,0 +1,194 @@
+---
+title: "G5999_Data Challenge 2"
+author: "Team 4"
+date: "22 March 2017"
+output: html_document
+---
+
+```{r message=FALSE}
+rm(list=ls(all=TRUE))   # cleans everything in the workspace
+
+library(readr)          # easier reading of flat files
+library(caret)          # classification and regresssion training package
+library(randomForest)   # Random Forests package
+library(ggplot2)
+library(zoo)
+library(dplyr)
+library(plyr)
+library(lubridate)
+library(scales)
+```
+
+```{r message=FALSE}
+inFileName1   <- "../../data/processed/AllViolenceData_170216.csv"     # cleaned data on violence
+AllData <- read_csv(inFileName1) 
+```
+
+## Q1
+
+### Time-series of Total Deaths
+
+One question we wanted to investigate was whether any differences existed over time in the total number of deaths per confrontation. 
+
+To do so, we created a dataset which aggregated the mean number of total people dead by month. This only includes the events which have at least 1 fatality.
+
+```{r}
+AllData$date.month <- round_date(AllData$date, "month")
+monthly_agg <- ddply(AllData[AllData$total.people.dead > 1,], .(date.month), summarize, mean.total.people.dead = mean(total.people.dead) )
+ggplot(monthly_agg[2:nrow(monthly_agg),], aes(date.month, mean.total.people.dead)) + 
+  scale_x_date(labels = date_format("%b-%Y"), breaks = date_breaks("1 year")) +
+  geom_line() +
+  geom_line(aes(y = monthly_agg[2:nrow(monthly_agg),]$mean.total.people.dead, color = "red")) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", aes(group=1)) +
+  theme(legend.position = "none")
+```
+
+From the above chart, we can see that there is a linear increasing trend in the number of deaths over time. However, there is quite a bit of fluctuation, even though we have smoothed out the trend by taking the average number of fatalities per month. The fluctuation month-to-month may be an indication of seasonality which would be interesting to explore in a regression analysis.
+
+In addition, we built a linear model to predict the total number of people dead by month.
+
+```{r}
+summary(lm(total.people.dead ~ factor(date.month), data = AllData[AllData$total.people.dead > 0,]))
+```
+
+In the output we can see that there are significant coefficients on some of the date.month. However, the model overall is not statistically significant at the 10% level since the F-statistic has a p-value of 0.2815. This indicates that while time isn't the only factor that can predict the total number of deaths for fatal events, it does appear that there are differences over time (possibly seasonal).
+
+From the dataset we constructed (restricting to only those events with at least one casualty), we can't infer how the average deaths per month resulting from military conflicts has trended over time. For example, there could be an increasing in conflicts which result in injuries but no fatalities which would decrease the average deaths per event. So while our finding here is interesting, future exploration could look to take into account the probability of an event having at least one fatality to see if there is a temporal trend there as well.
+
+### Veronica's
+
+## Q2
+
+### Cartridges and Civilian Deaths
+
+#### Hypothesis:
+1. The more cartridges seized, the fewer the amount of civiians deaths and wounded.
+2. When the army is present in the confrontation, the fewer the amount of civilians deaths and wounded.
+3. In addition, when the army is present in the confrontation, given that it is a military force with stronger power and might, they are able to be more successful than other agencies in seizing cartridges, and therefore resulting in fewer organised crime-induced civilian deaths and wounded.
+
+#### Models:
+$$ (civilian.dead + civilian.wounded) = 
+{\alpha} + {\beta_1}cartidges.seized + {\beta_2}army + {\beta_3}army * cartidges.seized + controls$$
+
+In our model, ${\beta_1}$ indicates the effect of cartidges seized on the number of civilian wounded and dead when there is no army presence.
+${\beta_2}$ indicates the effect of army involvement on the number of civilian wounded and dead, when there is no cartidges seized.
+${\beta_3}$ indicates the marginal effect of cartridges seized on the number of civilian wounded and dead when the army is present in the confrontation. This relates to the hypothesis we would like to test.
+
+We run a regression without interactions first to see the direction of the relationship between cartidges seized with total civilian deaths and wounded, and that between army presence and total civilian deaths and wounded. We control for the presence of other agencies in the confrontation.
+
+```{r}
+dataset1 <- AllData %>%
+  filter(afi == 0 & federal.police == 0 & ministerial.police == 0 & municipal.police == 0 & navy == 0 & other == 0 & state.police == 0) 
+dataset2 <- AllData[-dataset1$event.id, ]
+
+lm1 <- lm(I(civilian.dead + civilian.wounded) ~ cartridge.sezied + army  + afi + navy + federal.police + state.police + municipal.police + ministerial.police + other, data = dataset2)
+summary(lm1) 
+```
+We first filtered out confrontations with 0 agencies involved at all - since in these scenarios, we are not supposed to have any cartridges seized. We then filter out events which only had army participation and no participation from other agencies, in order to see the marginal effect of army presence (on top of other agencies) on cartridges seized on civilians death and wounded. This allows us to see the extra influence the army has when it is present at confrontations with other agencies.
+
+As the first model shows, controlling for other factors, on average, cartridge.sezied is negatively related to the total number of civilians dead and wounded. Surprisingly, with other factors held constant, on average, army presece has a positive relationship with total civilian deaths and wounded, which does not support our hypothesis. However, the coefficients on both cartridge.sezied and army are not statistically significant at the 10% level, indicating that the relationship might be spurious. 
+
+We add an interaction term to the original model and explore if there was support for our third hypothesis.
+
+```{r}
+lm2 <- lm(I(civilian.dead + civilian.wounded) ~ cartridge.sezied + army + army * cartridge.sezied + afi + navy + federal.police + state.police + municipal.police + ministerial.police + other, data = dataset2)
+summary(lm2)
+```
+
+From the results, we see that controlling for other factors, on average, when there is no army presence (vs. army presence), each additional cartridge seized is associated with 1.241e-05 fewer civilian deaths and wounded. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for other factors, on average, when there are no catridges seized, army presence (vs. no army presence) is associated with 6.155e-02 more civilian deaths and wounded. However, the coefficient is not statistically significant at the 10% level. Again, this is similar to the finding from the previous model.
+
+Controlling for other factors, on average, when the army is present (vs. no army presence), each additional cartridge seized results in 1.697e-05 more civilian deaths and wounded i.e. ultimately, each additional cartidge seized in a confrontation results in 4.56e-06 more (-1.241e-05 + 1.697e-05) civilian deaths or wounded. However, the coefficient is not statistically significant at the 10% level.
+
+```{r}
+beta <- coef(lm2)
+varcov <- as.matrix(vcov(lm2))
+var <- diag(varcov)
+
+cartridge.sezied <- mean(dataset2$cartridge.sezied)
+mfx.1 <- as.numeric(beta["army"]) + as.numeric(beta["cartridge.sezied:army"]) * cartridge.sezied
+mfx.1.se <- sqrt(var["army"] + cartridge.sezied ^ 2 * var["cartridge.sezied:army"] + 2 * cartridge.sezied * varcov["army", "cartridge.sezied:army"])
+c(mfx.1, mfx.1.se)
+```
+Assuming the mean number of cartidges were seized in each confrontation, we calculated the total effect of army presence in the confrontation. Army presence (vs. no army presence) is positively associated with 0.064 total civilian deaths and wounded, with a standard error of 0.110. This refutes our second hypothesis that army presence leads to a lower number of civilian deaths and wounded.
+
+#### Conclusions & Limitations:
+
+We do not find support for our hypotheses. However, the coefficients in the regression are statistically insignificant (likely due to the limited number of cases), and as such might potentially be spurious.
+
+Our assumptions are that the cartridges, if not seized, would have been used by criminals to kill or wound civilians. In addition, we assume that events with and without army presence are similar in magnitude (i.e. similar number of people involved, including civilians and organised criminals etc.), such that the marginal effect of army presence can be causally determined. However, we feel that this is unlikely to be the case in real life, given that army presence likely signifies that the confrontation is bigger in magnitude. This would have explained the opposite association we found between army presence and total civilian deaths and wounded.
+
+### Teamwork Effect between Police and Military in Achieving Perfect Lethality
+
+#### Hypothesis:
+1. When the federal police is present in the confrontation, there is a higher probability of perfect lethality.
+2. When the army is present in the confrontation, there is a higher probability of perfect lethality. 
+3. When there are more long guns seized, there is a lower probability of perfect lethality - since there is a higher level of combat involved. In this case, we assume that long guns seized is a proxy for the level of combat intensity in the confrontation.
+4. When both the army and federal police are present at the confrontation, we believe that there is an additional 'teamwork effect' i.e. even higher probability of perfect lethality. This is the marginal effect we are interested in studying.
+5. When both the army and federal police are present at the confrontation, we believe that additional long guns seized i.e. higher combat intensity, will result in lower probability of perfect lethality, since the 'teamwork effect' will diminish under chaotic conditions.
+
+#### Models:
+$$ (perfect.lethality) = 
+{\alpha} + {\beta_1}army + {\beta_2}federal.police + {\beta_3}long.guns.seized + {\beta_4}army * federal.police + $$
+$${\beta_5}army * long.guns.seized + {\beta_6}federa.police * long.guns.seized + {\beta_7}army * federal.police * long.guns.seized + controls$$
+In this case, the coefficient on the interaction term between army and federal police, ${\beta_4}$, indicates the 'teamwork effect'. The coefficient on the interaction term with the three variables, ${\beta_7}$, represents the diminished teamwork effect of higher combat intensity. 
+
+First, we run a logit model with no interaction included to see the effect direction of the predictors. 
+
+```{r}
+logit1 <- glm(perfect.lethality ~ army + federal.police + long.guns.seized + afi + navy + state.police + municipal.police + ministerial.police + other, family = binomial(link = "logit"), data = AllData)
+summary(logit1)
+```
+As the results show, controlling for participation of other agencies, on average, army presence and additional long guns seized increases the logit of perfect lethality. On the contrary, federal police presence decreases the logit of perfect lethality. The coefficients of these three variables are statistically significant at the 1% level.
+
+Given this, the directions are not entirely the same as we posited. Federal police presence reduces the probability of perfect lethality, while more long guns seized increases the probability of perfect lethality. Only our second hypothesis regarding army presence is supported.
+
+To further learn about the teamwork effects, we run a second logistic regression with interactions.
+
+```{r}
+logit2 <- glm(perfect.lethality ~ army + federal.police + long.guns.seized + army * long.guns.seized * federal.police + afi + navy + state.police + municipal.police + ministerial.police + other, family = binomial(link = "logit"), data = AllData)
+summary(logit2)
+```
+
+Controlling for all other factors, on average, when there is no federal police presence and no long guns seized, army presence increases the logit of perfect lethality by 0.429. The coefficient is statistically significant at the 0.1% level.
+
+Controlling for all other factors, on average, when there is no army presence and no long guns seized, federal police presence decreases the logit of perfect lethality by 0.700. The coefficient is statistically significant at the 0.1% level.
+
+Controlling for all other factors, on average, when there is no federal police and no army presence, an additional long gun seized increases the logit of perfect lethality by 0.084. The coefficient is statistically significant at the 0.1% level. This possibly suggests that long guns seized is a measure of weakened enemy power, rather than combat intensity as we have assumed.
+
+Controlling for all other factors, on average, when there is no federal police presence but army presence, an additional long gun seized decreases the logit of perfect lethality by 0.023. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for all other factors, on average, when there is no army presence but federal police presence, an additional long gun seized increases the logit of perfect lethality by 0.114. The coefficient is statistically significant at the 1% level.
+
+Controlling for all other factors, on average, when there is no long guns seized, army and federal police presence increases the logit of perfect lethality by 0.655. However, the coefficient is not statistically significant at the 10% level.
+
+Controlling for all other factors, on average, when there is army and federal poice presence, an additional long gun seized decreases the logit of perfect lethality by 0.026. The coefficient is not statistically significant at the 10% level.
+
+```{r}
+beta_logit <- coef(logit2)
+varcov_logit <- as.matrix(vcov(logit2))
+se_logit <- sqrt(diag(vcov(logit2)))
+
+long.guns.seized <- mean(AllData$long.guns.seized)
+mfx.2 <- as.numeric(beta_logit["army"]) + as.numeric(beta_logit["federal.police"]) + as.numeric(beta_logit["army:federal.police"]) + as.numeric(beta_logit["army:federal.police:long.guns.seized"]) * long.guns.seized 
+
+mfx.2.se <- mfx.2.se <- sqrt(
+  se_logit["army"] ^ 2 + se_logit["federal.police"] ^ 2 + se_logit["army:federal.police"] ^ 2 + se_logit["army:federal.police:long.guns.seized"] ^ 2 * (long.guns.seized ^ 2) +
+    2 * varcov_logit["army", "federal.police"] + 2 * varcov_logit["army", "army:federal.police"] + 2 * varcov_logit["army", "army:federal.police:long.guns.seized"] * long.guns.seized +
+    2 * varcov_logit["federal.police", "army:federal.police"] + 2 * varcov_logit["federal.police", "army:federal.police:long.guns.seized"] * long.guns.seized + 
+    2 * varcov_logit["army:federal.police", "army:federal.police:long.guns.seized"] * long.guns.seized
+)
+
+c(mfx.2, mfx.2.se)
+```
+
+Assuming the mean number of long guns were seized in each confrontation, we calculated the total effect of army and federal police presence in the confrontation. At the combat intensity of mean long guns seized, army presence and federal police presence increases the logit of perfect lethality by 0.341, with a standard error of 0.416. While the standard error is indeed large, this supports our hypothesis that there is the presence of some synergy with both agencies present at a confrontation.
+
+#### Conclusion & Limitations:
+
+We assume that long guns seized is a proxy for combat intensity i.e. the more long guns there were seized meant that there were more long guns present in combat, and hence higher intensity. However, this may not be a good proxy because it can also meant that the fighting power of the criminals is reduced when more guns are seized, i.e. less combat intensity. Nonetheless, given the lack of any other variables that could serve as a proxy for combat intensity, we think this is the closest measure.
+
+In addition, we assume that events are similar in magnitude with or without army and/or federal police presence. However, we feel that this is unlikely to be the case in real life. As mentioned before, the more agencies involved in a confrontation, the more likely the confrontation is greater in magnitude. 
+
+Even though some of the interaction terms are statistically insignificant (possibly due to the lack of confrontations with both army and federal police involvement), there is some support for our hypotheses. The direction of the 'teamwork effect' is positive in the regression, and that of the marginal effect of combat intensity on the 'teamwork effect' is negative. 
